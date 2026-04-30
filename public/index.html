@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bangkok Property Matcher</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f1117;
+      color: #e8e8e8;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 16px;
+    }
+
+    .logo {
+      font-size: 13px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #555;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 6px;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 40px;
+    }
+
+    .card {
+      background: #1a1d27;
+      border: 1px solid #2a2d3a;
+      border-radius: 16px;
+      padding: 28px;
+      width: 100%;
+      max-width: 640px;
+      margin-bottom: 24px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #666;
+      margin-bottom: 10px;
+    }
+
+    textarea {
+      width: 100%;
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 10px;
+      color: #e8e8e8;
+      font-size: 15px;
+      line-height: 1.6;
+      padding: 14px 16px;
+      resize: vertical;
+      min-height: 100px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    textarea:focus { border-color: #4f6ef7; }
+
+    button {
+      margin-top: 16px;
+      width: 100%;
+      padding: 14px;
+      background: #4f6ef7;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+    }
+
+    button:hover { background: #3d5ce0; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .parsed {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 0;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .tag-label {
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #555;
+    }
+
+    .tag-value {
+      font-size: 14px;
+      color: #fff;
+      font-weight: 500;
+    }
+
+    .features {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .feature-chip {
+      background: #1e2235;
+      border: 1px solid #3a3f55;
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: #a0a8c8;
+    }
+
+    .section-title {
+      font-size: 12px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: #666;
+      margin-bottom: 16px;
+    }
+
+    .listing {
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 12px;
+      transition: border-color 0.2s;
+    }
+
+    .listing:hover { border-color: #4f6ef7; }
+    .listing.best-fit { border-color: #4f6ef7; background: #131829; }
+    .best-badge {
+      background: #4f6ef7;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      white-space: nowrap;
+    }
+
+    .listing-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+
+    .listing-price {
+      font-size: 14px;
+      color: #4f6ef7;
+      font-weight: 500;
+      margin-bottom: 10px;
+    }
+
+    .photo-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      overflow-x: auto;
+    }
+    .listing-photo {
+      width: 120px;
+      height: 90px;
+      object-fit: cover;
+      border-radius: 8px;
+      flex-shrink: 0;
+    }
+    .listing-meta {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 6px;
+    }
+    .listing-desc {
+      font-size: 13px;
+      color: #aaa;
+      line-height: 1.5;
+    }
+    .listing-link {
+      font-size: 12px;
+      color: #555;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .listing-link:hover { color: #4f6ef7; }
+
+    .spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .status {
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+      padding: 20px 0;
+    }
+
+    .error {
+      color: #f76c6c;
+      background: #2a1a1a;
+      border: 1px solid #5a2a2a;
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 14px;
+    }
+
+    #results { display: none; }
+  </style>
+</head>
+<body>
+
+  <div class="logo">Shaydefy</div>
+  <h1>Bangkok Property Matcher</h1>
+  <p class="subtitle">Paste an agent's requirement → get matching Facebook listings</p>
+
+  <div class="card">
+    <label>Agent Message</label>
+    <textarea id="message" placeholder="e.g. Client needs 2 bed condo in Sukhumvit, budget 30k/month, must have gym and pool"></textarea>
+    <button id="btn" onclick="search()">Find Matching Properties</button>
+  </div>
+
+  <div class="card" id="results">
+    <div id="output"></div>
+  </div>
+
+  <script>
+    async function search() {
+      const message = document.getElementById('message').value.trim();
+      if (!message) return;
+
+      const btn = document.getElementById('btn');
+      const results = document.getElementById('results');
+      const output = document.getElementById('output');
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Searching Facebook Marketplace...';
+      results.style.display = 'block';
+      output.innerHTML = '<div class="status"><span class="spinner"></span>Parsing requirements and scraping listings — this takes ~15 seconds...</div>';
+
+      try {
+        const res = await fetch('/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Something went wrong');
+
+        const { parsed, query, listings } = data;
+
+        let html = `
+          <div class="section-title" style="margin-bottom:16px">Parsed Requirements</div>
+          <div class="parsed">
+            <div class="tag-row">
+              <span class="tag-label">Property Type</span>
+              <span class="tag-value">${parsed.propertyType || '—'}</span>
+            </div>
+            <div class="tag-row">
+              <span class="tag-label">Bedrooms</span>
+              <span class="tag-value">${parsed.bedrooms || '—'}</span>
+            </div>
+            <div class="tag-row">
+              <span class="tag-label">Budget</span>
+              <span class="tag-value">${parsed.budget || '—'}</span>
+            </div>
+            <div class="tag-row">
+              <span class="tag-label">Location</span>
+              <span class="tag-value">${parsed.location || '—'}</span>
+            </div>
+            ${parsed.features?.length ? `
+            <div class="features">
+              ${parsed.features.map(f => `<span class="feature-chip">${f}</span>`).join('')}
+            </div>` : ''}
+          </div>
+
+          <hr style="border-color:#2a2d3a; margin: 24px 0;" />
+
+          <div class="section-title">Matching Listings — "${query}"</div>
+        `;
+
+        if (!listings.length) {
+          html += '<div class="status">No listings found — try a broader search term.</div>';
+        } else {
+          listings.forEach(l => {
+            const photos = l.photos || [];
+            html += `
+              <div class="listing ${l.bestFit ? 'best-fit' : ''}">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                  <div class="listing-title">${l.title || 'Property Listing'}</div>
+                  ${l.bestFit ? '<span class="best-badge">Best Fit</span>' : ''}
+                </div>
+                ${photos.length ? `
+                <div class="photo-row">
+                  ${photos.map(p => `<img src="${p}" class="listing-photo" />`).join('')}
+                </div>` : ''}
+                ${l.price ? `<div class="listing-price">${l.price}</div>` : ''}
+                ${l.location ? `<div class="listing-meta">📍 ${l.location}</div>` : ''}
+                ${l.description ? `<div class="listing-desc">${l.description.slice(0, 200)}${l.description.length > 200 ? '…' : ''}</div>` : ''}
+              </div>
+            `;
+          });
+        }
+
+        output.innerHTML = html;
+      } catch (err) {
+        output.innerHTML = `<div class="error">${err.message}</div>`;
+      }
+
+      btn.disabled = false;
+      btn.textContent = 'Find Matching Properties';
+    }
+  </script>
+
+</body>
+</html>
