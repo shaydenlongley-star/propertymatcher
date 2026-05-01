@@ -6,6 +6,24 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_FILE = path.join(__dirname, 'fb-session.json');
 
+// Owner-only Bangkok property groups (public, 15k+ members)
+const OWNER_GROUPS = [
+  'condoandpropertypostbyowner',
+  'condosalesbyowner',
+  'condorentalbyowner',
+  'condobangkokforrent',
+  'bangkokpropertyrentals',
+  'realestatebangkokowner'
+];
+
+// Search terms to filter out agent posts
+const AGENT_KEYWORDS = ['agent', 'broker', 'agency', 'commission', 'co-broke', 'co broke'];
+
+function isAgentPost(text) {
+  const lower = text.toLowerCase();
+  return AGENT_KEYWORDS.some(k => lower.includes(k));
+}
+
 export async function scrapeListings(query, maxPrice = null) {
   const browser = await chromium.launch({ headless: false });
 
@@ -30,63 +48,108 @@ export async function scrapeListings(query, maxPrice = null) {
     console.log('Session saved — future searches will skip login.\n');
   }
 
-  const priceParam = maxPrice ? `&maxPrice=${maxPrice}` : '';
-  const searchUrl = `https://www.facebook.com/marketplace/bangkok/search/?query=${encodeURIComponent(query)}${priceParam}`;
-  await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(4000);
+  const allPostUrls = [];
 
-  // Collect listing URLs from search results
-  const listingUrls = await page.evaluate(() => {
-    const links = Array.from(document.querySelectorAll('a[href*="/marketplace/item/"]'));
-    const seen = new Set();
-    const urls = [];
-    for (const link of links) {
-      const href = link.href.split('?')[0];
-      if (!seen.has(href)) { seen.add(href); urls.push(href); }
-      if (urls.length >= 4) break;
+  // Search each owner group
+  for (const group of OWNER_GROUPS) {
+    if (allPostUrls.length >= 6) break;
+    try {
+      const groupSearchUrl = `https://www.facebook.com/groups/${group}/search/?q=${encodeURIComponent(query)}`;
+      await page.goto(groupSearchUrl, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(3000);
+
+      const urls = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]'));
+        const seen = new Set();
+        const results = [];
+        for (const link of links) {
+          const href = link.href.split('?')[0];
+          if (!seen.has(href) && href.includes('/posts/')) {
+            seen.add(href);
+            results.push(href);
+          }
+          if (results.length >= 2) break;
+        }
+        return results;
+      });
+
+      allPostUrls.push(...urls);
+    } catch {
+      // skip failed group
     }
-    return urls;
-  });
+  }
 
-  // Visit each listing and scrape details + photos
+  // Fallback to Facebook group search if no results from direct group search
+  if (allPostUrls.length === 0) {
+    try {
+      const searchUrl = `https://www.facebook.com/search/posts/?q=${encodeURIComponent(query + ' owner Bangkok condo')}`;
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(4000);
+
+      const urls = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]'));
+        const seen = new Set();
+        const results = [];
+        for (const link of links) {
+          const href = link.href.split('?')[0];
+          if (!seen.has(href)) { seen.add(href); results.push(href); }
+          if (results.length >= 4) break;
+        }
+        return results;
+      });
+
+      allPostUrls.push(...urls);
+    } catch {}
+  }
+
+  // Visit each post and extract details
   const listings = [];
-  for (const url of listingUrls) {
+  for (const url of allPostUrls.slice(0, 4)) {
     try {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(2500);
 
       const detail = await page.evaluate(() => {
-        // Title
-        const h1 = document.querySelector('h1');
-        const title = h1?.innerText?.trim() || '';
+        // Post text
+        const postEl = document.querySelector('[data-ad-comet-preview="message"], [data-testid="post_message"]');
+        const description = postEl?.innerText?.trim() || document.querySelector('[dir="auto"]')?.innerText?.trim() || '';
 
-        // Price
-        const allSpans = Array.from(document.querySelectorAll('span'));
-        const price = allSpans.map(s => s.innerText?.trim()).find(t => /฿|baht|\d{4,}/i.test(t)) || '';
+        // Price from text
+        const priceMatch = description.match(/฿[\d,]+|[\d,]+\s*(baht|บาท|thb)/i) ||
+                           description.match(/[\d,]{4,}/);
+        const price = priceMatch ? priceMatch[0] : '';
 
-        // Description
-        const descEl = document.querySelector('[data-testid="marketplace-pdp-description"] span, [class*="description"] span');
-        const description = descEl?.innerText?.trim() || '';
+        // Title — first line of post
+        const title = description.split('\n')[0]?.trim().slice(0, 80) || 'Property listing';
 
-        // Photos — grab scontent CDN images
+        // Photos
         const imgs = Array.from(document.querySelectorAll('img[src*="scontent"]'))
           .map(img => img.src)
-          .filter(src => src.includes('scontent') && !src.includes('emoji') && !src.includes('profile'))
+          .filter(src => !src.includes('emoji') && !src.includes('profile') && !src.includes('sticker'))
           .slice(0, 4);
 
-        // Location
-        const locSpans = allSpans.map(s => s.innerText?.trim()).filter(t =>
-          t.includes('Bangkok') || t.includes('Sukhumvit') || t.includes('Thonglor') ||
-          t.includes('Asok') || t.includes('Silom') || t.includes('Sathorn') || t.includes('Phrom Phong')
-        );
-        const location = locSpans[0] || '';
+        // Location hints
+        const allSpans = Array.from(document.querySelectorAll('span, div'));
+        const locationKeywords = ['Bangkok', 'Sukhumvit', 'Thonglor', 'Asok', 'Silom', 'Sathorn', 'Phrom Phong', 'Ekkamai', 'On Nut', 'Bearing'];
+        const location = allSpans.map(s => s.innerText?.trim()).find(t =>
+          locationKeywords.some(k => t?.includes(k)) && t.length < 60
+        ) || '';
 
         return { title, price, description, photos: imgs, location };
       });
 
-      if (detail.title || detail.price) listings.push(detail);
+      // Filter out agent posts
+      if (isAgentPost(detail.description)) continue;
+
+      // Apply price filter
+      if (maxPrice && detail.price) {
+        const priceNum = parseInt(detail.price.replace(/[^0-9]/g, ''));
+        if (priceNum && priceNum > maxPrice) continue;
+      }
+
+      if (detail.title || detail.description) listings.push(detail);
     } catch {
-      // skip failed pages
+      // skip failed posts
     }
   }
 
