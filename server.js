@@ -67,7 +67,7 @@ No explanation. No markdown. Just raw JSON.`
     if (num) {
       let val = parseInt(num[0]);
       if (parsed.budget.toLowerCase().includes('k')) val *= 1000;
-      maxPrice = val + 5000;
+      maxPrice = Math.round(val * 1.5); // 50% tolerance
     }
   }
 
@@ -82,13 +82,28 @@ No explanation. No markdown. Just raw JSON.`
 
   const budgetNum = maxPrice ? maxPrice - 5000 : null;
 
-  const scored = listings.map(l => {
+  // Hard filters
+  const filtered = listings.filter(l => {
+    const text = (l.title + ' ' + (l.description || '')).toLowerCase();
+    // Filter by minimum bedroom count
+    if (parsed.bedrooms && l.bedrooms !== null && l.bedrooms !== undefined) {
+      if (l.bedrooms < parsed.bedrooms) return false;
+    }
+    // Also check description text if bedrooms not parsed from scraper
+    if (parsed.bedrooms && (l.bedrooms === null || l.bedrooms === undefined)) {
+      const m = text.match(/(\d+)\s*(?:bed(?:room)?s?|ห้องนอน)/i);
+      if (m && parseInt(m[1]) < parsed.bedrooms) return false;
+    }
+    return true;
+  });
+
+  const scored = filtered.map(l => {
     const text = (l.title + ' ' + (l.description || '') + ' ' + l.price).toLowerCase();
     let score = 0;
     keywords.forEach(k => { if (text.includes(k)) score += 1; });
     if (parsed.bedrooms) {
-      const m = text.match(/(\d+)\s*(bed|bedroom)/i);
-      if (m) score += parseInt(m[1]) === parsed.bedrooms ? 3 : -2;
+      const beds = l.bedrooms || parseInt((text.match(/(\d+)\s*(bed|bedroom)/i) || [])[1]);
+      if (beds) score += beds === parsed.bedrooms ? 3 : -1;
     }
     const priceNum = parseInt((l.price || '').replace(/[^0-9]/g, ''));
     if (budgetNum && priceNum) {
@@ -102,9 +117,37 @@ No explanation. No markdown. Just raw JSON.`
   return scored.map((l, i) => ({ ...l, bestFit: i === 0 && l.score > 0 }));
 }
 
+function sanitize(text) {
+  if (!text) return '';
+  return text
+    // Remove phone numbers (Thai and international formats)
+    .replace(/(?:\+?66|0)\d[\d\s\-]{7,12}\d/g, '')
+    .replace(/\b0[689]\d[\d\-\s]{7,10}\b/g, '')
+    // Remove LINE IDs
+    .replace(/(?:line\s*(?:id)?|ไลน์|line\s*:)\s*[@\w.\-]+/gi, '')
+    .replace(/@[\w.\-]+/g, '')
+    // Remove emails
+    .replace(/[\w.+-]+@[\w.-]+\.\w+/g, '')
+    // Remove "owner post" phrases in English and Thai
+    .replace(/\*{0,3}(?:owner\s*post|เจ้าของ(?:ห้อง)?โพส|posted?\s*by\s*owner)\*{0,3}/gi, '')
+    .replace(/\[owner\s*post\]/gi, '')
+    // Remove "contact owner / contact me" lines
+    .replace(/(?:contact|ติดต่อ|สนใจ)[^\n]{0,60}(?:owner|inbox|ib|me|เจ้าของ)[^\n]*/gi, '')
+    .replace(/(?:inbox|ib)\s+(?:or|หรือ)[^\n]*/gi, '')
+    // Remove hashtags
+    .replace(/#\S+/g, '')
+    // Clean up extra blank lines
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // Build LINE flex message for a property listing
 function buildListingBubble(l, index) {
   const photo = l.photos?.[0];
+  const cleanTitle = sanitize(l.title) || `Property ${index + 1}`;
+  const cleanDesc = sanitize(l.description);
+  const snippet = cleanDesc.slice(0, 150) + (cleanDesc.length > 150 ? '…' : '');
+
   return {
     type: 'bubble',
     hero: photo ? {
@@ -128,7 +171,7 @@ function buildListingBubble(l, index) {
         }] : []),
         {
           type: 'text',
-          text: l.title || `Property ${index + 1}`,
+          text: cleanTitle,
           weight: 'bold',
           size: 'md',
           wrap: true
@@ -147,9 +190,9 @@ function buildListingBubble(l, index) {
           color: '#888888',
           wrap: true
         }] : []),
-        ...(l.description ? [{
+        ...(snippet ? [{
           type: 'text',
-          text: l.description.slice(0, 150) + (l.description.length > 150 ? '…' : ''),
+          text: snippet,
           size: 'xs',
           color: '#aaaaaa',
           wrap: true
@@ -167,12 +210,14 @@ const lineMiddleware = lineConfig.channelSecret
 app.post('/webhook', lineMiddleware, async (req, res) => {
   res.sendStatus(200);
 
+  if (!req.body || !req.body.events || !req.body.events.length) return;
+
   for (const event of req.body.events) {
     if (event.type !== 'message' || event.message.type !== 'text') continue;
-    if (event.source.type !== 'group') continue;
+    if (event.source.type !== 'group' && event.source.type !== 'user') continue;
 
     const text = event.message.text;
-    const userId = event.source.userId;
+    const userId = event.source.userId || event.source.groupId;
 
     if (!looksLikeInquiry(text)) continue;
 

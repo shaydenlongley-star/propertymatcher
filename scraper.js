@@ -6,17 +6,17 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_FILE = path.join(__dirname, 'fb-session.json');
 
-// Owner-only Bangkok property groups (public, 15k+ members)
 const OWNER_GROUPS = [
-  'condoandpropertypostbyowner',
-  'condosalesbyowner',
-  'condorentalbyowner',
-  'condobangkokforrent',
-  'bangkokpropertyrentals',
-  'realestatebangkokowner'
+  '299716057099018',    // CONDO & PROPERTY POST BY OWNER (22K)
+  'condosalesbyowner',  // Condo sales by owner (116K)
+  '458098031664389',    // Condo rental by Owner (77K)
+  '899928066709755',    // ซื้อ ขาย บ้าน ที่ดิน เจ้าของขายเอง (169K)
+  '1387566661527073',   // Bangkok Condo For Rent/Sale by Owner
+  'bangkokpropertybyowner',
+  '2204279116481020',   // Bangkok Property Owner Post
+  '1544324185802619',   // Condo Bangkok By Owner
 ];
 
-// Search terms to filter out agent posts
 const AGENT_KEYWORDS = ['agent', 'broker', 'agency', 'commission', 'co-broke', 'co broke'];
 
 function isAgentPost(text) {
@@ -34,122 +34,168 @@ export async function scrapeListings(query, maxPrice = null) {
   const context = await browser.newContext(contextOptions);
   const page = await context.newPage();
 
-  // Check login state
+  // Verify login
   await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(2000);
-
-  const isLoggedOut = await page.$('input[name="email"]');
-  if (isLoggedOut) {
-    console.log('\n👉 Please log into Facebook in the browser window that just opened.');
-    console.log('Waiting up to 2 minutes for login...\n');
-    await page.waitForURL('https://www.facebook.com/', { timeout: 120000 });
-    await page.waitForTimeout(2000);
-    await context.storageState({ path: SESSION_FILE });
-    console.log('Session saved — future searches will skip login.\n');
+  const emailField = await page.$('input[name="email"]');
+  if (emailField) {
+    console.log('Not logged in — run node login.js first');
+    await browser.close();
+    return [];
   }
 
   const allPostUrls = [];
 
-  // Search each owner group
   for (const group of OWNER_GROUPS) {
     if (allPostUrls.length >= 6) break;
     try {
       const groupSearchUrl = `https://www.facebook.com/groups/${group}/search/?q=${encodeURIComponent(query)}`;
+      console.log(`Searching: ${groupSearchUrl}`);
       await page.goto(groupSearchUrl, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(3000);
+      await page.waitForTimeout(4000);
 
       const urls = await page.evaluate(() => {
-        const links = Array.from(document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]'));
         const seen = new Set();
         const results = [];
+        const links = Array.from(document.querySelectorAll('a[href]'));
+
         for (const link of links) {
-          const href = link.href.split('?')[0];
-          if (!seen.has(href) && href.includes('/posts/')) {
-            seen.add(href);
-            results.push(href);
+          const href = link.href;
+          // Facebook group posts now appear as /commerce/listing/ or /groups/.../posts/ or ?post_id=
+          const isPost = (
+            href.includes('/commerce/listing/') ||
+            href.includes('/posts/') ||
+            href.includes('/permalink/') ||
+            (href.includes('/groups/') && href.includes('post_id='))
+          );
+          if (!isPost) continue;
+
+          const clean = href.split('?')[0];
+          if (!seen.has(clean)) {
+            seen.add(clean);
+            results.push(href); // keep query params for post_id case
           }
-          if (results.length >= 2) break;
+          if (results.length >= 3) break;
         }
         return results;
       });
 
+      console.log(`  Found ${urls.length} post links`);
       allPostUrls.push(...urls);
-    } catch {
-      // skip failed group
+    } catch (e) {
+      console.log(`  Error searching group ${group}:`, e.message);
     }
   }
 
-  // Fallback to Facebook group search if no results from direct group search
-  if (allPostUrls.length === 0) {
+  // Fallback: Facebook-wide group search if we don't have enough results
+  if (allPostUrls.length < 4) {
     try {
-      const searchUrl = `https://www.facebook.com/search/posts/?q=${encodeURIComponent(query + ' owner Bangkok condo')}`;
-      await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(4000);
+      const fbSearch = `https://www.facebook.com/search/groups/?q=${encodeURIComponent(query + ' owner Bangkok')}`;
+      console.log(`Fallback search: ${fbSearch}`);
+      await page.goto(fbSearch, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(5000);
 
       const urls = await page.evaluate(() => {
-        const links = Array.from(document.querySelectorAll('a[href*="/groups/"][href*="/posts/"]'));
         const seen = new Set();
         const results = [];
-        for (const link of links) {
-          const href = link.href.split('?')[0];
-          if (!seen.has(href)) { seen.add(href); results.push(href); }
+        for (const link of document.querySelectorAll('a[href]')) {
+          const href = link.href;
+          const isPost = href.includes('/commerce/listing/') || href.includes('/posts/') || href.includes('/permalink/');
+          if (!isPost) continue;
+          const clean = href.split('?')[0];
+          if (!seen.has(clean)) { seen.add(clean); results.push(href); }
           if (results.length >= 4) break;
         }
         return results;
       });
 
+      console.log(`  Fallback found ${urls.length} links`);
       allPostUrls.push(...urls);
-    } catch {}
+    } catch (e) {
+      console.log('Fallback search error:', e.message);
+    }
   }
 
-  // Visit each post and extract details
+  // Visit each listing and extract details
   const listings = [];
-  for (const url of allPostUrls.slice(0, 4)) {
+  for (const url of allPostUrls.slice(0, 5)) {
     try {
+      console.log(`Visiting: ${url}`);
       await page.goto(url, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(2500);
+      await page.waitForTimeout(3000);
 
       const detail = await page.evaluate(() => {
-        // Post text
-        const postEl = document.querySelector('[data-ad-comet-preview="message"], [data-testid="post_message"]');
-        const description = postEl?.innerText?.trim() || document.querySelector('[dir="auto"]')?.innerText?.trim() || '';
+        const titleEl = document.querySelector('h1');
 
-        // Price from text
-        const priceMatch = description.match(/฿[\d,]+|[\d,]+\s*(baht|บาท|thb)/i) ||
-                           description.match(/[\d,]{4,}/);
-        const price = priceMatch ? priceMatch[0] : '';
+        // Get main description
+        const allDivs = Array.from(document.querySelectorAll('[dir="auto"]'));
+        const description = allDivs
+          .map(d => d.innerText?.trim())
+          .filter(t => t && t.length > 30)
+          .sort((a, b) => b.length - a.length)[0] || '';
 
-        // Title — first line of post
-        const title = description.split('\n')[0]?.trim().slice(0, 80) || 'Property listing';
+        // Prefer rental price (per month) over sale price
+        const rentMatch = description.match(/(?:rent(?:al)?|เช่า)[^\n]{0,40}?([\d,]+)\s*(?:baht|บาท|thb|THB)(?:\/|\s*per\s*)?\s*(?:month|เดือน)/i)
+                       || description.match(/([\d,]+)\s*(?:baht|บาท|THB|thb)\s*(?:\/|\s*per\s*)?\s*(?:month|เดือน)/i)
+                       || description.match(/(?:month(?:ly)?|เดือน)[^\n]{0,10}?:?\s*([\d,]+)/i);
+        const saleMatch = description.match(/(?:sell(?:ing)?|sale|ขาย)[^\n]{0,40}?([\d,.]+)\s*(?:million|M|ล้าน|baht|บาท)/i)
+                       || description.match(/([\d,]+,000,000|[5-9]\d{2},\d{3})\s*(?:baht|บาท)?/i);
 
-        // Photos
-        const imgs = Array.from(document.querySelectorAll('img[src*="scontent"]'))
+        let price = '';
+        let isSaleOnly = false;
+        if (rentMatch) {
+          price = rentMatch[1].replace(/,/g, '') + ' THB/month';
+        } else if (saleMatch) {
+          price = saleMatch[0].trim();
+          isSaleOnly = true;
+        } else {
+          const anyPrice = description.match(/฿[\d,]+|[\d,]{5,}\s*(?:baht|บาท|THB)/i);
+          price = anyPrice ? anyPrice[0].trim() : '';
+        }
+
+        // Bedroom count
+        const bedMatch = description.match(/(\d+)\s*(?:bed(?:room)?s?|ห้องนอน)/i);
+        const bedrooms = bedMatch ? parseInt(bedMatch[1]) : null;
+
+        const title = titleEl?.innerText?.trim().slice(0, 80) ||
+                      description.split('\n')[0]?.trim().slice(0, 80) ||
+                      'Property listing';
+
+        const imgs = Array.from(document.querySelectorAll('img'))
           .map(img => img.src)
-          .filter(src => !src.includes('emoji') && !src.includes('profile') && !src.includes('sticker'))
+          .filter(src => src.includes('scontent') && !src.includes('emoji') && !src.includes('profile_pic'))
           .slice(0, 4);
 
-        // Location hints
-        const allSpans = Array.from(document.querySelectorAll('span, div'));
-        const locationKeywords = ['Bangkok', 'Sukhumvit', 'Thonglor', 'Asok', 'Silom', 'Sathorn', 'Phrom Phong', 'Ekkamai', 'On Nut', 'Bearing'];
-        const location = allSpans.map(s => s.innerText?.trim()).find(t =>
-          locationKeywords.some(k => t?.includes(k)) && t.length < 60
+        const locationKeywords = ['Bangkok', 'Sukhumvit', 'Thonglor', 'Asok', 'Silom', 'Sathorn', 'Phrom Phong', 'Ekkamai', 'On Nut', 'Bearing', 'Nana', 'Ari', 'Ratchada'];
+        const textNodes = Array.from(document.querySelectorAll('span, div, p'))
+          .map(el => el.innerText?.trim()).filter(t => t);
+        const location = textNodes.find(t =>
+          locationKeywords.some(k => t?.includes(k)) && t.length < 80
         ) || '';
 
-        return { title, price, description, photos: imgs, location };
+        return { title, price, description, photos: imgs, location, bedrooms, isSaleOnly };
       });
 
-      // Filter out agent posts
-      if (isAgentPost(detail.description)) continue;
-
-      // Apply price filter
-      if (maxPrice && detail.price) {
-        const priceNum = parseInt(detail.price.replace(/[^0-9]/g, ''));
-        if (priceNum && priceNum > maxPrice) continue;
+      if (isAgentPost(detail.description)) {
+        console.log('  Skipping agent post');
+        continue;
       }
 
-      if (detail.title || detail.description) listings.push(detail);
-    } catch {
-      // skip failed posts
+      if (maxPrice && detail.price) {
+        const priceNum = parseInt(detail.price.replace(/[^0-9]/g, ''));
+        // Skip price filter for obvious sale prices (>500k) — agent asked for rent budget
+        if (priceNum && priceNum > maxPrice && priceNum < 500000) {
+          console.log(`  Skipping — rental price ${priceNum} > max ${maxPrice}`);
+          continue;
+        }
+      }
+
+      if (detail.title || detail.description) {
+        console.log(`  Added: ${detail.title}`);
+        listings.push({ ...detail, url });
+      }
+    } catch (e) {
+      console.log(`  Error visiting post:`, e.message);
     }
   }
 
