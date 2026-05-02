@@ -17,11 +17,47 @@ const OWNER_GROUPS = [
   '1544324185802619',   // Condo Bangkok By Owner
 ];
 
-const AGENT_KEYWORDS = ['agent', 'broker', 'agency', 'commission', 'co-broke', 'co broke'];
+// Words that confirm an agent/agency post
+const AGENT_KEYWORDS = [
+  'agent', 'broker', 'agency', 'commission', 'co-broke', 'co broke', 'co-agent',
+  'ag post', 'agent post', 'welcome agent', 'agents welcome',
+  // Known Bangkok real estate agencies
+  'property scout', 'propertyscout',
+  're/max', 'remax',
+  'century 21', 'century21',
+  'cbre', 'colliers', 'knight frank', 'jll', 'savills',
+  'ddproperty', 'dd property',
+  'fazwaz', 'faz waz',
+  'hipflat', 'lazudi',
+  'thailand property', 'dot property',
+  'thaiger property', 'baania',
+  'perfect homes', 'plus property',
+  'noble estate', 'siam real estate',
+];
 
-function isAgentPost(text) {
+// Words that confirm it IS an owner post (positive signals)
+const OWNER_SIGNALS = [
+  'owner post', 'เจ้าของโพส', 'เจ้าของขาย', 'เจ้าของให้เช่า',
+  'direct owner', 'ไม่ผ่านนายหน้า', 'no agent', 'by owner',
+  'posted by owner', 'owner direct',
+];
+
+function isAgentPost(text, imageUrls = []) {
   const lower = text.toLowerCase();
-  return AGENT_KEYWORDS.some(k => lower.includes(k));
+
+  // Check text for agent keywords
+  if (AGENT_KEYWORDS.some(k => lower.includes(k))) return true;
+
+  // Check image URLs/alt text for agency watermarks
+  const imgText = imageUrls.join(' ').toLowerCase();
+  if (AGENT_KEYWORDS.some(k => imgText.includes(k))) return true;
+
+  return false;
+}
+
+function hasOwnerSignal(text) {
+  const lower = text.toLowerCase();
+  return OWNER_SIGNALS.some(k => lower.includes(k));
 }
 
 export async function scrapeListings(query, maxPrice = null) {
@@ -176,10 +212,13 @@ export async function scrapeListings(query, maxPrice = null) {
         return { title, price, description, photos: imgs, location, bedrooms, isSaleOnly };
       });
 
-      if (isAgentPost(detail.description)) {
+      if (isAgentPost(detail.description, detail.photos)) {
         console.log('  Skipping agent post');
         continue;
       }
+
+      // Boost score for confirmed owner posts (used in server.js ranking)
+      detail.ownerConfirmed = hasOwnerSignal(detail.description);
 
       if (maxPrice && detail.price) {
         const priceNum = parseInt(detail.price.replace(/[^0-9]/g, ''));

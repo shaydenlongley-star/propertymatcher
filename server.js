@@ -101,6 +101,7 @@ No explanation. No markdown. Just raw JSON.`
     const text = (l.title + ' ' + (l.description || '') + ' ' + l.price).toLowerCase();
     let score = 0;
     keywords.forEach(k => { if (text.includes(k)) score += 1; });
+    if (l.ownerConfirmed) score += 3;
     if (parsed.bedrooms) {
       const beds = l.bedrooms || parseInt((text.match(/(\d+)\s*(bed|bedroom)/i) || [])[1]);
       if (beds) score += beds === parsed.bedrooms ? 3 : -1;
