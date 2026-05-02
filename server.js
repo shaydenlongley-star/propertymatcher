@@ -123,9 +123,11 @@ function sanitize(text) {
     // Remove phone numbers (Thai and international formats)
     .replace(/(?:\+?66|0)\d[\d\s\-]{7,12}\d/g, '')
     .replace(/\b0[689]\d[\d\-\s]{7,10}\b/g, '')
-    // Remove LINE IDs
-    .replace(/(?:line\s*(?:id)?|ไลน์|line\s*:)\s*[@\w.\-]+/gi, '')
+    // Remove LINE IDs and generic IDs
+    .replace(/(?:line\s*(?:id|oa)?|ไลน์|line\s*:)\s*[@\w.\-]+/gi, '')
     .replace(/@[\w.\-]+/g, '')
+    .replace(/\bID\s*:\s*\d+/gi, '')
+    .replace(/\bid\s*[:#]\s*[\w\d]+/gi, '')
     // Remove emails
     .replace(/[\w.+-]+@[\w.-]+\.\w+/g, '')
     // Remove "owner post" phrases in English and Thai
@@ -141,11 +143,34 @@ function sanitize(text) {
     .trim();
 }
 
+function hasThai(text) {
+  return /[฀-๿]/.test(text);
+}
+
+async function translateIfNeeded(text) {
+  if (!text || !hasThai(text)) return text;
+  try {
+    const res = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'system',
+          content: 'Translate the following Thai/mixed text to natural English. Keep property details (sizes, prices, building names) as-is. Return only the translated text, nothing else.'
+        },
+        { role: 'user', content: text }
+      ]
+    });
+    return res.choices[0].message.content.trim();
+  } catch {
+    return text;
+  }
+}
+
 // Build LINE flex message for a property listing
-function buildListingBubble(l, index) {
+async function buildListingBubble(l, index) {
   const photo = l.photos?.[0];
-  const cleanTitle = sanitize(l.title) || `Property ${index + 1}`;
-  const cleanDesc = sanitize(l.description);
+  const cleanTitle = await translateIfNeeded(sanitize(l.title)) || `Property ${index + 1}`;
+  const cleanDesc = await translateIfNeeded(sanitize(l.description));
   const snippet = cleanDesc.slice(0, 150) + (cleanDesc.length > 150 ? '…' : '');
 
   return {
@@ -231,7 +256,7 @@ app.post('/webhook', lineMiddleware, async (req, res) => {
         continue;
       }
 
-      const bubbles = listings.slice(0, 4).map((l, i) => buildListingBubble(l, i));
+      const bubbles = await Promise.all(listings.slice(0, 4).map((l, i) => buildListingBubble(l, i)));
 
       await lineClient.pushMessage({
         to: userId,
