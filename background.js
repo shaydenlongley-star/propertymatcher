@@ -68,6 +68,41 @@ export async function runBackgroundScrape(onSessionExpired) {
     const seenIds = new Set();
     const allListings = [];
 
+    // Collect post URLs: groups feed first (covers ALL joined groups), then specific groups
+    const allPostUrls = [];
+
+    // 1. Groups feed — gets recent posts from every group the account has joined
+    try {
+      console.log('[BG] Scraping groups feed...');
+      await page.goto('https://www.facebook.com/groups/feed/', { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(4000);
+
+      // Scroll 3 times to load more posts
+      for (let i = 0; i < 3; i++) {
+        await page.evaluate(() => window.scrollBy(0, 3000));
+        await page.waitForTimeout(2000);
+      }
+
+      const feedUrls = await page.evaluate(() => {
+        const seen = new Set();
+        const results = [];
+        for (const link of document.querySelectorAll('a[href]')) {
+          const href = link.href;
+          const isPost = href.includes('/commerce/listing/') || href.includes('/posts/') || href.includes('/permalink/');
+          if (!isPost) continue;
+          const clean = href.split('?')[0];
+          if (!seen.has(clean)) { seen.add(clean); results.push(href); }
+          if (results.length >= 30) break;
+        }
+        return results;
+      });
+      console.log(`[BG]  Feed: ${feedUrls.length} links`);
+      allPostUrls.push(...feedUrls);
+    } catch (e) {
+      console.log('[BG] Feed error:', e.message);
+    }
+
+    // 2. Also check specific known owner groups for targeted coverage
     for (const group of OWNER_GROUPS) {
       try {
         console.log(`[BG] Scraping group ${group}...`);
@@ -91,8 +126,14 @@ export async function runBackgroundScrape(onSessionExpired) {
         });
 
         console.log(`[BG]  ${urls.length} links found`);
+        allPostUrls.push(...urls);
+      } catch (e) {
+        console.log(`[BG] Error in group ${group}:`, e.message);
+      }
+    }
 
-        for (const url of urls.slice(0, 10)) {
+    console.log(`[BG] Total unique URLs to visit: processing up to 40...`);
+    for (const url of allPostUrls.slice(0, 40)) {
           const listingId = extractListingId(url);
           if (listingId && seenIds.has(listingId)) { console.log(`[BG]  Duplicate skipped`); continue; }
           if (listingId) seenIds.add(listingId);
@@ -140,10 +181,6 @@ export async function runBackgroundScrape(onSessionExpired) {
             allListings.push({ ...detail, listingId, url });
             console.log(`[BG]  Saved: ${detail.title?.slice(0, 50)}`);
           } catch { /* skip */ }
-        }
-      } catch (e) {
-        console.log(`[BG] Error in group ${group}:`, e.message);
-      }
     }
 
     await context.storageState({ path: SESSION_FILE });
