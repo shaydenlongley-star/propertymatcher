@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BKK Properties — Admin</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0a0a0a; color: #e8e8e8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+
+  header {
+    background: #111;
+    border-bottom: 1px solid #1e1e1e;
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+  header h1 span { color: #22c55e; }
+  .live-dot { width: 8px; height: 8px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 6px; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  #last-updated { font-size: 12px; color: #555; }
+
+  main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+  /* Stat cards */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+  .stat-card {
+    background: #111;
+    border: 1px solid #1e1e1e;
+    border-radius: 12px;
+    padding: 24px 20px;
+  }
+  .stat-card .label { font-size: 12px; color: #555; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
+  .stat-card .value { font-size: 36px; font-weight: 700; line-height: 1; }
+  .stat-card .value.green { color: #22c55e; }
+  .stat-card .value.blue { color: #3b82f6; }
+  .stat-card .value.amber { color: #f59e0b; }
+  .stat-card .sub { font-size: 12px; color: #444; margin-top: 6px; }
+
+  /* Grid layout */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+
+  .panel {
+    background: #111;
+    border: 1px solid #1e1e1e;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .panel h2 { font-size: 13px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 16px; }
+
+  /* Quality chart */
+  .quality-bars { display: flex; align-items: flex-end; gap: 6px; height: 80px; }
+  .quality-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+  .quality-bar {
+    width: 100%;
+    border-radius: 4px 4px 0 0;
+    transition: height 0.4s ease;
+    min-height: 3px;
+  }
+  .quality-bar.good { background: #22c55e; }
+  .quality-bar.ok { background: #f59e0b; }
+  .quality-bar.bad { background: #ef4444; }
+  .quality-bar-label { font-size: 10px; color: #444; white-space: nowrap; }
+
+  /* Lists */
+  .rank-list { list-style: none; }
+  .rank-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #1a1a1a;
+    font-size: 14px;
+  }
+  .rank-list li:last-child { border-bottom: none; }
+  .rank-list .rank-num { color: #333; font-size: 12px; width: 20px; flex-shrink: 0; }
+  .rank-list .rank-name { flex: 1; color: #ccc; }
+  .rank-list .rank-count {
+    background: #1a1a1a;
+    color: #22c55e;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+  }
+
+  /* Recent searches table */
+  .search-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .search-table th {
+    text-align: left;
+    padding: 8px 12px;
+    color: #444;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid #1e1e1e;
+  }
+  .search-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #141414;
+    color: #bbb;
+    vertical-align: top;
+  }
+  .search-table tr:last-child td { border-bottom: none; }
+  .search-table tr:hover td { background: #141414; }
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-green { background: #14532d; color: #22c55e; }
+  .badge-red { background: #450a0a; color: #f87171; }
+  .badge-blue { background: #1e3a5f; color: #60a5fa; }
+
+  .empty { color: #333; font-size: 13px; text-align: center; padding: 24px 0; }
+
+  /* Viewing requests */
+  .viewing-list { list-style: none; }
+  .viewing-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid #1a1a1a;
+    cursor: pointer;
+    transition: background 0.15s;
+    border-radius: 6px;
+    padding: 10px 8px;
+    margin: 0 -8px;
+  }
+  .viewing-item:hover { background: #161616; }
+  .viewing-item:last-child { border-bottom: none; }
+  .viewing-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .viewing-status-dot.pending { background: #f59e0b; }
+  .viewing-status-dot.contacted { background: #22c55e; }
+  .viewing-status-dot.closed { background: #444; }
+  .viewing-info { flex: 1; min-width: 0; }
+  .viewing-title { font-size: 13px; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .viewing-meta { font-size: 11px; color: #555; margin-top: 2px; }
+  .viewing-price { font-size: 13px; color: #22c55e; font-weight: 600; flex-shrink: 0; }
+  .viewing-time { font-size: 11px; color: #444; flex-shrink: 0; }
+
+  /* Modal */
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 16px;
+    max-width: 600px;
+    width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
+    padding: 28px;
+  }
+  .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .modal .modal-price { color: #22c55e; font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+  .modal .modal-section { margin-bottom: 16px; }
+  .modal .modal-label { font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+  .modal .modal-value { font-size: 13px; color: #ccc; line-height: 1.6; }
+  .modal .fb-link {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #1877f2; color: white;
+    padding: 10px 18px; border-radius: 8px;
+    text-decoration: none; font-size: 13px; font-weight: 600;
+    margin-top: 4px;
+    transition: background 0.15s;
+  }
+  .modal .fb-link:hover { background: #1464cc; }
+  .modal .no-url { color: #444; font-size: 13px; font-style: italic; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; }
+  .btn { padding: 9px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: background 0.15s; }
+  .btn-green { background: #22c55e; color: #000; }
+  .btn-green:hover { background: #16a34a; }
+  .btn-gray { background: #2a2a2a; color: #aaa; }
+  .btn-gray:hover { background: #333; }
+  .btn-close { background: transparent; color: #555; border: 1px solid #2a2a2a; }
+  .btn-close:hover { background: #1a1a1a; }
+
+  @media (max-width: 768px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="live-dot"></span>BKK Properties <span>Admin</span></h1>
+  <div id="last-updated">Loading...</div>
+</header>
+
+<main>
+  <div class="stats">
+    <div class="stat-card">
+      <div class="label">Listings in DB</div>
+      <div class="value green" id="stat-listings">—</div>
+      <div class="sub" id="stat-updated">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Quality Score</div>
+      <div class="value blue" id="stat-quality">—</div>
+      <div class="sub">avg last check</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Searches (30d)</div>
+      <div class="value" id="stat-searches">—</div>
+      <div class="sub" id="stat-budget">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Viewing Requests</div>
+      <div class="value amber" id="stat-viewings">—</div>
+      <div class="sub">all time</div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px">
+    <h2>DB Data Coverage</h2>
+    <div id="db-coverage" style="display:flex;gap:20px;flex-wrap:wrap;padding:8px 0">
+      <div class="empty">Loading...</div>
+    </div>
+  </div>
+
+  <div class="grid-3" style="margin-bottom:16px">
+    <div class="panel" style="grid-column: span 2">
+      <h2>Quality Score — Last 12 Checks</h2>
+      <div class="quality-bars" id="quality-chart">
+        <div class="empty">No quality data yet</div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Top Bedrooms (7d)</h2>
+      <ul class="rank-list" id="top-bedrooms"><li class="empty">No data</li></ul>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-bottom:16px">
+    <div class="panel">
+      <h2>Top Areas (7d)</h2>
+      <ul class="rank-list" id="top-areas"><li class="empty">No data</li></ul>
+    </div>
+    <div class="panel">
+      <h2>Top Areas (30d)</h2>
+      <ul class="rank-list" id="top-areas-30"><li class="empty">No data</li></ul>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px">
+    <h2>Viewing Requests <span id="viewing-count" style="color:#f59e0b;font-size:11px;margin-left:6px"></span></h2>
+    <ul class="viewing-list" id="viewing-list">
+      <li class="empty">No viewing requests yet</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h2>Recent Searches (48h)</h2>
+    <table class="search-table">
+      <thead>
+        <tr>
+          <th>Query</th>
+          <th>Area</th>
+          <th>Beds</th>
+          <th>Budget</th>
+          <th>Results</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="recent-searches">
+        <tr><td colspan="6" class="empty">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<!-- Viewing request modal -->
+<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-section">
+      <div class="modal-label">Property</div>
+      <h3 id="m-title"></h3>
+      <div class="modal-price" id="m-price"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-label">Location</div>
+      <div class="modal-value" id="m-location"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-label">Agent LINE ID</div>
+      <div class="modal-value" id="m-agent"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-label">Requested</div>
+      <div class="modal-value" id="m-time"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-label">Description</div>
+      <div class="modal-value" id="m-desc" style="max-height:150px;overflow-y:auto;white-space:pre-wrap"></div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-label">Original Listing</div>
+      <div id="m-url"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-green" onclick="setStatus('contacted')">✅ Mark Contacted</button>
+      <button class="btn btn-gray" onclick="setStatus('closed')">🔒 Close</button>
+      <button class="btn btn-close" onclick="closeModal()">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const KEY = new URLSearchParams(location.search).get('key') || '';
+  let activeRequest = null;
+
+  function timeAgo(ts) {
+    const diff = Date.now() - new Date(ts).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return m + 'm ago';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + 'h ago';
+    return Math.floor(h / 24) + 'd ago';
+  }
+
+  function renderList(id, items, nameFn) {
+    const el = document.getElementById(id);
+    if (!items || !items.length) { el.innerHTML = '<li class="empty">No data</li>'; return; }
+    el.innerHTML = items.map((item, i) =>
+      `<li>
+        <span class="rank-num">${i + 1}</span>
+        <span class="rank-name">${nameFn(item)}</span>
+        <span class="rank-count">${item.count}</span>
+      </li>`
+    ).join('');
+  }
+
+  function openModal(req) {
+    activeRequest = req;
+    document.getElementById('m-title').textContent = req.propertyTitle || 'Untitled';
+    document.getElementById('m-price').textContent = req.propertyPrice || 'Price on request';
+    document.getElementById('m-location').textContent = req.propertyLocation || '—';
+    document.getElementById('m-agent').textContent = req.userId || '—';
+    document.getElementById('m-time').textContent = new Date(req.timestamp).toLocaleString() + ' (' + timeAgo(req.timestamp) + ')';
+    document.getElementById('m-desc').textContent = req.propertyDescription || 'No description saved.';
+    const urlEl = document.getElementById('m-url');
+    if (req.propertyUrl) {
+      urlEl.innerHTML = `<a class="fb-link" href="${req.propertyUrl}" target="_blank">🔗 Open Original Listing</a>`;
+    } else {
+      urlEl.innerHTML = '<span class="no-url">No source URL saved for this listing</span>';
+    }
+    document.getElementById('modal-overlay').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('modal-overlay').classList.remove('open');
+    activeRequest = null;
+  }
+
+  async function setStatus(status) {
+    if (!activeRequest) return;
+    await fetch(`/admin/viewing-status?key=${KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ timestamp: activeRequest.timestamp, status }),
+    });
+    closeModal();
+    load();
+  }
+
+  function renderViewingRequests(requests) {
+    const el = document.getElementById('viewing-list');
+    const countEl = document.getElementById('viewing-count');
+    const pending = requests.filter(r => r.status === 'pending').length;
+    countEl.textContent = pending > 0 ? `${pending} pending` : '';
+
+    if (!requests.length) {
+      el.innerHTML = '<li class="empty">No viewing requests yet</li>';
+      return;
+    }
+    el.innerHTML = requests.map(req => {
+      const statusCls = req.status || 'pending';
+      const price = req.propertyPrice || '';
+      const title = req.propertyTitle || 'Untitled property';
+      const agentShort = (req.userId || '').slice(-6);
+      return `<li class="viewing-item" onclick='openModal(${JSON.stringify(req).replace(/'/g, "&#39;")})'>
+        <div class="viewing-status-dot ${statusCls}"></div>
+        <div class="viewing-info">
+          <div class="viewing-title">${title}</div>
+          <div class="viewing-meta">Agent ···${agentShort} · ${statusCls}</div>
+        </div>
+        <div class="viewing-price">${price}</div>
+        <div class="viewing-time">${timeAgo(req.timestamp)}</div>
+      </li>`;
+    }).join('');
+  }
+
+  async function load() {
+    try {
+      const res = await fetch(`/admin/data?key=${KEY}`);
+      if (!res.ok) { document.body.innerHTML = '<p style="padding:40px;color:#f87171">Unauthorized — check your key in the URL</p>'; return; }
+      const d = await res.json();
+
+      // Stat cards
+      document.getElementById('stat-listings').textContent = d.db.total ?? '—';
+      document.getElementById('stat-updated').textContent = d.db.lastUpdated ? 'Updated ' + timeAgo(d.db.lastUpdated) : 'Never updated';
+      document.getElementById('stat-searches').textContent = d.report.totalSearches ?? '—';
+      document.getElementById('stat-budget').textContent = d.report.avgBudget ? '฿' + d.report.avgBudget.toLocaleString() + ' avg budget' : 'No budget data';
+      document.getElementById('stat-viewings').textContent = d.viewingRequestCount ?? '—';
+
+      // Quality score
+      const latest = d.qualityLog[d.qualityLog.length - 1];
+      const qEl = document.getElementById('stat-quality');
+      qEl.textContent = latest ? latest.avg + '/10' : '—';
+      qEl.className = 'value ' + (!latest ? '' : latest.avg >= 7 ? 'green' : latest.avg >= 5 ? '' : 'amber');
+
+      // Quality chart
+      const chartEl = document.getElementById('quality-chart');
+      if (d.qualityLog.length) {
+        chartEl.innerHTML = d.qualityLog.map(entry => {
+          const pct = (entry.avg / 10) * 100;
+          const cls = entry.avg >= 7 ? 'good' : entry.avg >= 5 ? 'ok' : 'bad';
+          return `<div class="quality-bar-wrap">
+            <div class="quality-bar ${cls}" style="height:${pct}%" title="${entry.avg}/10"></div>
+            <div class="quality-bar-label">${entry.avg}</div>
+          </div>`;
+        }).join('');
+      } else {
+        chartEl.innerHTML = '<div class="empty">No quality data yet — runs hourly</div>';
+      }
+
+      // DB coverage metrics
+      const cov = d.dbQuality;
+      const covEl = document.getElementById('db-coverage');
+      if (cov && cov.total > 0) {
+        const metrics = [
+          { label: 'Price', ...cov.withPrice },
+          { label: 'Location', ...cov.withLocation },
+          { label: 'Bedrooms', ...cov.withBedrooms },
+          { label: 'Photos', ...cov.withPhotos },
+          { label: 'Owner ✓', ...cov.ownerConfirmed },
+        ];
+        covEl.innerHTML = metrics.map(m => {
+          const color = m.pct >= 70 ? '#22c55e' : m.pct >= 40 ? '#f59e0b' : '#ef4444';
+          return `<div style="text-align:center;min-width:80px">
+            <div style="font-size:22px;font-weight:700;color:${color}">${m.pct}%</div>
+            <div style="font-size:11px;color:#666;margin-top:2px">${m.label}</div>
+            <div style="font-size:10px;color:#aaa">${m.count}/${cov.total}</div>
+          </div>`;
+        }).join('');
+      } else {
+        covEl.innerHTML = '<div class="empty">No data</div>';
+      }
+
+      // Top areas 7d
+      renderList('top-areas', d.demand.topAreas.slice(0, 7), a => a.area);
+      renderList('top-bedrooms', d.demand.topBedrooms.slice(0, 5), b => b.beds + ' Bedroom');
+      renderList('top-areas-30', (d.report.topAreas || []).slice(0, 7).map(([area, count]) => ({ area, count })), a => a.area);
+
+      // Viewing requests
+      renderViewingRequests(d.viewingRequests || []);
+
+      // Recent searches
+      const tbody = document.getElementById('recent-searches');
+      if (!d.recent.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">No searches in last 48h</td></tr>';
+      } else {
+        tbody.innerHTML = d.recent.map(s => {
+          const resultsBadge = s.resultCount > 0
+            ? `<span class="badge badge-green">${s.resultCount}</span>`
+            : `<span class="badge badge-red">0</span>`;
+          return `<tr>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.query || '—'}</td>
+            <td>${s.area || '—'}</td>
+            <td>${s.bedrooms ? s.bedrooms + 'BR' : '—'}</td>
+            <td>${s.budget ? '฿' + s.budget : '—'}</td>
+            <td>${resultsBadge}</td>
+            <td style="color:#444">${timeAgo(s.timestamp)}</td>
+          </tr>`;
+        }).join('');
+      }
+
+      document.getElementById('last-updated').textContent = 'Refreshed ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      document.getElementById('last-updated').textContent = 'Error: ' + e.message;
+    }
+  }
+
+  load();
+  setInterval(load, 30000);
+</script>
+</body>
+</html>
