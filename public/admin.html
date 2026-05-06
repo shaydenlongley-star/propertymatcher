@@ -210,8 +210,25 @@
 
 <header>
   <h1><span class="live-dot"></span>BKK Properties <span>Admin</span></h1>
-  <div id="last-updated">Loading...</div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <div id="last-updated">Loading...</div>
+    <button class="btn btn-gray" onclick="toggleSessionPanel()" style="font-size:11px;padding:5px 12px">🔑 FB Session</button>
+  </div>
 </header>
+
+<div id="session-panel" style="display:none;background:#111;border-bottom:1px solid #1e1e1e;padding:16px 32px">
+  <div style="max-width:1100px;margin:0 auto">
+    <p style="font-size:12px;color:#555;margin-bottom:8px">Paste your <code style="background:#1a1a1a;padding:2px 5px;border-radius:3px">fb-session.json</code> content here to refresh the Facebook session without SSH.</p>
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <textarea id="session-json" rows="3" placeholder='{"cookies":[...],"origins":[...]}' style="flex:1;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;padding:8px 10px;color:#e8e8e8;font-size:12px;font-family:monospace;resize:vertical"></textarea>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <button class="btn btn-green" onclick="uploadSession()" style="font-size:12px;white-space:nowrap">Upload Session</button>
+        <button class="btn btn-gray" onclick="toggleSessionPanel()" style="font-size:12px">Cancel</button>
+      </div>
+    </div>
+    <div id="session-status" style="font-size:12px;margin-top:6px;color:#22c55e"></div>
+  </div>
+</div>
 
 <main>
   <div class="stats">
@@ -645,6 +662,41 @@
   }
 
   loadManualListings();
+
+  // FB session upload
+  function toggleSessionPanel() {
+    const p = document.getElementById('session-panel');
+    p.style.display = p.style.display === 'none' ? 'block' : 'none';
+    document.getElementById('session-status').textContent = '';
+  }
+
+  async function uploadSession() {
+    const raw = document.getElementById('session-json').value.trim();
+    const statusEl = document.getElementById('session-status');
+    if (!raw) { statusEl.textContent = 'Paste session JSON first'; statusEl.style.color = '#f87171'; return; }
+    let json;
+    try { json = JSON.parse(raw); } catch { statusEl.textContent = 'Invalid JSON'; statusEl.style.color = '#f87171'; return; }
+    statusEl.textContent = 'Uploading...'; statusEl.style.color = '#888';
+    try {
+      const res = await fetch(`/admin/session?key=${KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(json),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        statusEl.textContent = '✓ Session saved — FB scraping will resume on next hourly run';
+        statusEl.style.color = '#22c55e';
+        document.getElementById('session-json').value = '';
+      } else {
+        statusEl.textContent = d.error || 'Error';
+        statusEl.style.color = '#f87171';
+      }
+    } catch (e) {
+      statusEl.textContent = 'Network error';
+      statusEl.style.color = '#f87171';
+    }
+  }
 </script>
 </body>
 </html>

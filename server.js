@@ -686,6 +686,17 @@ app.delete('/admin/listing/:id', (req, res) => {
   res.json({ ok });
 });
 
+// Upload a fresh FB session JSON (paste from browser export — no SSH needed)
+app.post('/admin/session', express.json({ limit: '2mb' }), (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'admin123')) return res.status(401).json({ error: 'Unauthorized' });
+  const session = req.body;
+  if (!session || (!session.cookies && !Array.isArray(session))) return res.status(400).json({ error: 'Invalid session JSON' });
+  const SESSION_FILE = path.join(__dirname, 'fb-session.json');
+  fs.writeFileSync(SESSION_FILE, JSON.stringify(session));
+  console.log('[ADMIN] FB session refreshed via admin upload');
+  res.json({ ok: true, message: 'Session saved — next scrape will use it' });
+});
+
 app.post('/admin/viewing-status', express.json(), (req, res) => {
   if (req.query.key !== (process.env.ADMIN_KEY || 'admin123')) return res.status(401).json({ error: 'Unauthorized' });
   const { timestamp, status } = req.body;
@@ -728,7 +739,7 @@ app.listen(3000, () => {
 
   const scrapeWithNotify = () => runBackgroundScrape(onSessionExpired, null);
   scrapeWithNotify();
-  setInterval(scrapeWithNotify, 60 * 60 * 1000);
+  setInterval(scrapeWithNotify, 30 * 60 * 1000); // every 30 min — keeps FB session alive longer
 
   // Purge listings older than 30 days every 6 hours
   setInterval(() => removeStaleListings(30), 6 * 60 * 60 * 1000);
