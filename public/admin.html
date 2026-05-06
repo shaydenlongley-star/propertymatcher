@@ -190,6 +190,16 @@
   .btn-close { background: transparent; color: #555; border: 1px solid #2a2a2a; }
   .btn-close:hover { background: #1a1a1a; }
 
+  .manual-item { display:flex;align-items:flex-start;gap:12px;padding:12px 8px;border-bottom:1px solid #1a1a1a; }
+  .manual-item:last-child { border-bottom:none; }
+  .manual-badge { background:#14532d;color:#22c55e;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;flex-shrink:0;margin-top:2px; }
+  .manual-info { flex:1;min-width:0; }
+  .manual-title { font-size:13px;color:#ddd;font-weight:600; }
+  .manual-meta { font-size:11px;color:#555;margin-top:3px; }
+  .manual-contact { font-size:11px;color:#3b82f6;margin-top:3px; }
+  .manual-del { background:transparent;border:1px solid #2a2a2a;color:#555;font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;flex-shrink:0; }
+  .manual-del:hover { background:#2a0a0a;color:#f87171;border-color:#450a0a; }
+
   @media (max-width: 768px) {
     .stats { grid-template-columns: repeat(2, 1fr); }
     .grid-2, .grid-3 { grid-template-columns: 1fr; }
@@ -262,6 +272,62 @@
     <h2>Viewing Requests <span id="viewing-count" style="color:#f59e0b;font-size:11px;margin-left:6px"></span></h2>
     <ul class="viewing-list" id="viewing-list">
       <li class="empty">No viewing requests yet</li>
+    </ul>
+  </div>
+
+  <div class="panel" style="margin-bottom:16px">
+    <h2 style="display:flex;align-items:center;justify-content:space-between">
+      Manual Listings <span id="manual-count" style="color:#22c55e;font-size:11px;font-weight:400"></span>
+      <button class="btn btn-green" onclick="toggleAddForm()" style="font-size:12px;padding:6px 14px">+ Add Listing</button>
+    </h2>
+
+    <div id="add-listing-form" style="display:none;margin-bottom:20px;padding:16px;background:#0d0d0d;border-radius:10px;border:1px solid #222">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div>
+          <label style="font-size:11px;color:#555;display:block;margin-bottom:4px">BUILDING / TITLE *</label>
+          <input id="f-title" placeholder="e.g. Life Sukhumvit 62" style="width:100%;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;padding:8px 10px;color:#e8e8e8;font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#555;display:block;margin-bottom:4px">AREA / LOCATION</label>
+          <input id="f-location" placeholder="e.g. On Nut, Thonglor" style="width:100%;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;padding:8px 10px;color:#e8e8e8;font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#555;display:block;margin-bottom:4px">PRICE (฿/month)</label>
+          <input id="f-price" type="number" placeholder="25000" style="width:100%;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;padding:8px 10px;color:#e8e8e8;font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#555;display:block;margin-bottom:4px">BEDROOMS</label>
+          <select id="f-beds" style="width:100%;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;padding:8px 10px;color:#e8e8e8;font-size:13px">
+            <option value="">— select —</option>
+            <option value="0">Studio</option>
+            <option value="1">1 Bed</option>
+            <option value="2">2 Bed</option>
+            <option value="3">3 Bed</option>
+            <option value="4">4+ Bed</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:11px;color:#555;display:block;margin-bottom:4px">DESCRIPTION (paste from WhatsApp / LINE)</label>
+        <textarea id="f-desc" rows="5" placeholder="Paste the owner's listing post here..." style="width:100%;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;padding:8px 10px;color:#e8e8e8;font-size:13px;resize:vertical"></textarea>
+      </div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:11px;color:#555;display:block;margin-bottom:4px">OWNER CONTACT (LINE / WhatsApp / phone) — admin only, never shown to agents</label>
+        <input id="f-contact" placeholder="e.g. LINE: owner123 / 08x-xxx-xxxx" style="width:100%;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;padding:8px 10px;color:#e8e8e8;font-size:13px">
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;color:#555;display:block;margin-bottom:4px">PHOTO URLS (comma-separated, optional)</label>
+        <input id="f-photos" placeholder="https://..." style="width:100%;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:6px;padding:8px 10px;color:#e8e8e8;font-size:13px">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-green" onclick="submitListing()">Save Listing</button>
+        <button class="btn btn-gray" onclick="toggleAddForm()">Cancel</button>
+        <span id="form-status" style="font-size:12px;color:#22c55e;align-self:center;margin-left:8px"></span>
+      </div>
+    </div>
+
+    <ul class="viewing-list" id="manual-list">
+      <li class="empty">No manual listings yet</li>
     </ul>
   </div>
 
@@ -500,6 +566,85 @@
 
   load();
   setInterval(load, 30000);
+
+  // Manual listings
+  async function loadManualListings() {
+    try {
+      const res = await fetch(`/admin/manual-listings?key=${KEY}`);
+      const listings = await res.json();
+      const el = document.getElementById('manual-list');
+      const countEl = document.getElementById('manual-count');
+      countEl.textContent = listings.length ? `${listings.length} active` : '';
+      if (!listings.length) { el.innerHTML = '<li class="empty">No manual listings yet — add one above</li>'; return; }
+      el.innerHTML = listings.map(l => {
+        const beds = l.bedrooms === 0 ? 'Studio' : l.bedrooms ? l.bedrooms + 'BR' : '—';
+        const price = l.priceNum ? '฿' + l.priceNum.toLocaleString() + '/mo' : l.price || '—';
+        return `<li class="manual-item">
+          <span class="manual-badge">OWNER</span>
+          <div class="manual-info">
+            <div class="manual-title">${l.title || 'Untitled'}</div>
+            <div class="manual-meta">${beds} · ${price} · ${l.location || 'Location TBC'} · Added ${timeAgo(l.addedAt)}</div>
+            ${l.ownerContact ? `<div class="manual-contact">📞 ${l.ownerContact}</div>` : ''}
+          </div>
+          <button class="manual-del" onclick="deleteListing('${l.listingId}')">Delete</button>
+        </li>`;
+      }).join('');
+    } catch (e) { console.error(e); }
+  }
+
+  function toggleAddForm() {
+    const f = document.getElementById('add-listing-form');
+    f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    document.getElementById('form-status').textContent = '';
+  }
+
+  async function submitListing() {
+    const title = document.getElementById('f-title').value.trim();
+    const location = document.getElementById('f-location').value.trim();
+    const priceNum = parseInt(document.getElementById('f-price').value) || 0;
+    const bedsVal = document.getElementById('f-beds').value;
+    const bedrooms = bedsVal !== '' ? parseInt(bedsVal) : null;
+    const description = document.getElementById('f-desc').value.trim();
+    const ownerContact = document.getElementById('f-contact').value.trim();
+    const photosRaw = document.getElementById('f-photos').value.trim();
+    const photos = photosRaw ? photosRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+    if (!title && !description) { document.getElementById('form-status').textContent = 'Title or description required'; return; }
+
+    const statusEl = document.getElementById('form-status');
+    statusEl.textContent = 'Saving...';
+    statusEl.style.color = '#888';
+    try {
+      const res = await fetch(`/admin/listing?key=${KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, location, priceNum, bedrooms, description, ownerContact, photos }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        statusEl.textContent = '✓ Saved';
+        statusEl.style.color = '#22c55e';
+        ['f-title','f-location','f-price','f-desc','f-contact','f-photos'].forEach(id => document.getElementById(id).value = '');
+        document.getElementById('f-beds').value = '';
+        loadManualListings();
+        setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      } else {
+        statusEl.textContent = d.error || 'Error';
+        statusEl.style.color = '#f87171';
+      }
+    } catch (e) {
+      statusEl.textContent = 'Network error';
+      statusEl.style.color = '#f87171';
+    }
+  }
+
+  async function deleteListing(listingId) {
+    if (!confirm('Delete this listing?')) return;
+    await fetch(`/admin/listing/${listingId}?key=${KEY}`, { method: 'DELETE' });
+    loadManualListings();
+  }
+
+  loadManualListings();
 </script>
 </body>
 </html>

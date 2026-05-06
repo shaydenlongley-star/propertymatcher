@@ -3,7 +3,7 @@ import express from 'express';
 import Groq from 'groq-sdk';
 import * as line from '@line/bot-sdk';
 import { scrapeListings, scrapeFBSearch } from './scraper.js';
-import { addListings, searchDB, logSearch, getDBStats, logMissedQuery, logQuickReply, getScoringWeights, logViewingRequest, getViewingRequestCount, getViewingRequests, updateViewingRequestStatus, getAnalyticsReport, getDemandStats, getRecentSearches, getListingById, removeStaleListings } from './db.js';
+import { addListings, searchDB, logSearch, getDBStats, logMissedQuery, logQuickReply, getScoringWeights, logViewingRequest, getViewingRequestCount, getViewingRequests, updateViewingRequestStatus, getAnalyticsReport, getDemandStats, getRecentSearches, getListingById, removeStaleListings, addManualListing, deleteManualListing, getManualListings } from './db.js';
 import fs from 'fs';
 import { runBackgroundScrape } from './background.js';
 import path from 'path';
@@ -665,6 +665,25 @@ app.get('/admin/data', (req, res) => {
   } catch {}
 
   res.json({ db: stats, demand, report, recent, qualityLog, dbQuality, viewingRequestCount: getViewingRequestCount(), viewingRequests: getViewingRequests().slice(0, 50) });
+});
+
+app.get('/admin/manual-listings', (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'admin123')) return res.status(401).json({ error: 'Unauthorized' });
+  res.json(getManualListings());
+});
+
+app.post('/admin/listing', express.json(), (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'admin123')) return res.status(401).json({ error: 'Unauthorized' });
+  const { title, price, priceNum, bedrooms, location, description, ownerContact, photos } = req.body;
+  if (!title && !description) return res.status(400).json({ error: 'title or description required' });
+  const id = addManualListing({ title, price, priceNum, bedrooms, location, description, ownerContact, photos });
+  res.json({ ok: true, listingId: id });
+});
+
+app.delete('/admin/listing/:id', (req, res) => {
+  if (req.query.key !== (process.env.ADMIN_KEY || 'admin123')) return res.status(401).json({ error: 'Unauthorized' });
+  const ok = deleteManualListing(req.params.id);
+  res.json({ ok });
 });
 
 app.post('/admin/viewing-status', express.json(), (req, res) => {

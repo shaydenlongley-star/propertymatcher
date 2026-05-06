@@ -408,3 +408,69 @@ export function updateViewingRequestStatus(timestamp, status) {
   _analytics = a;
   fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(a));
 }
+
+export function addManualListing(data) {
+  const db = getDB();
+  const listingId = 'manual_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  const text = ((data.title || '') + ' ' + (data.description || '')).toLowerCase();
+  let priceNum = data.priceNum || extractPriceFromText(text);
+  let bedrooms = data.bedrooms != null ? data.bedrooms : extractBedroomsFromText(text);
+  let location = data.location || extractLocationFromText(text) || '';
+
+  const safeL = {
+    listingId,
+    title: data.title || '',
+    description: stripContactInfo(data.description || ''),
+    price: priceNum ? `${priceNum} THB/month` : (data.price || ''),
+    priceNum: priceNum || 0,
+    bedrooms: bedrooms != null ? bedrooms : null,
+    location,
+    photos: Array.isArray(data.photos) ? data.photos.filter(Boolean) : [],
+    ownerConfirmed: true,
+    source: 'manual',
+    addedAt: new Date().toISOString(),
+  };
+
+  // Owner contact stored in analytics ONLY — never leaks into search results
+  if (data.ownerContact) {
+    const a = getAnalytics();
+    if (!a.ownerContacts) a.ownerContacts = {};
+    a.ownerContacts[listingId] = { contact: data.ownerContact, addedAt: safeL.addedAt };
+    _analytics = a;
+    fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(a));
+  }
+
+  db.listings.push(safeL);
+  _db = db;
+  db.lastUpdated = new Date().toISOString();
+  fs.writeFileSync(DB_FILE, JSON.stringify(db));
+  console.log(`[DB] Manual listing added: ${safeL.title} (${listingId})`);
+  return listingId;
+}
+
+export function deleteManualListing(listingId) {
+  const db = getDB();
+  const before = db.listings.length;
+  db.listings = db.listings.filter(l => l.listingId !== listingId);
+  if (db.listings.length === before) return false;
+  _db = db;
+  db.lastUpdated = new Date().toISOString();
+  fs.writeFileSync(DB_FILE, JSON.stringify(db));
+  const a = getAnalytics();
+  if (a.ownerContacts?.[listingId]) {
+    delete a.ownerContacts[listingId];
+    _analytics = a;
+    fs.writeFileSync(ANALYTICS_FILE, JSON.stringify(a));
+  }
+  console.log(`[DB] Deleted listing ${listingId}`);
+  return true;
+}
+
+export function getManualListings() {
+  const db = getDB();
+  const a = getAnalytics();
+  return db.listings
+    .filter(l => l.source === 'manual')
+    .map(l => ({ ...l, ownerContact: a.ownerContacts?.[l.listingId]?.contact || null }));
+}
+}
