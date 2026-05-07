@@ -100,9 +100,13 @@ function scoreAndFilter(listings, parsed, maxPrice) {
 
   const budgetNum = maxPrice ? Math.round(maxPrice / 1.5) : null;
 
+  const GARBAGE_TITLES = new Set(['home','notifications','marketplace','groups','watch','menu','log in','sign up','facebook','']);
+
   // Deduplicate by listingId/URL AND by normalised title+price fingerprint
   const seen = new Set();
   const unique = listings.filter(l => {
+    const t = (l.title || '').toLowerCase().trim();
+    if (GARBAGE_TITLES.has(t) || t.length < 5) return false;
     const id = l.listingId || l.url || null;
     if (id && seen.has(id)) return false;
     if (id) seen.add(id);
@@ -290,11 +294,13 @@ function sanitize(text) {
     // Explicit contact prefixes followed by anything on that line
     .replace(/(?:tel|phone|call|whatsapp|wa|wechat|wc|viber|contact|mobile|ติดต่อ|โทร|สนใจ|สอบถาม)\s*[:\-]?\s*[\d\s\+\-\.\(\)]{7,}/gi, '')
     .replace(/(?:tel|phone|call|whatsapp|wa|wechat|wc|viber|contact|mobile|ติดต่อ|โทร|สนใจ|สอบถาม)[^\n]{0,80}/gi, '')
-    // LINE, WeChat, social IDs and @ handles
-    .replace(/(?:line\s*(?:id|oa)?|ไลน์|line\s*:)\s*[@\w.\-]+/gi, '')
-    .replace(/line\s*id\s*[:\-]?\s*\S+/gi, '')
+    // LINE, WeChat, social IDs and @ handles — strip entire line when LINE is mentioned
+    .replace(/^.*(?:line\s*(?:id|oa)?|ไลน์)[^\n]*/gim, '')
+    .replace(/^.*line\s*[:\-][^\n]*/gim, '')
     .replace(/(?:wechat|wc|微信)\s*[:\-]?\s*\S+/gi, '')
     .replace(/@[\w.\-]+/g, '')
+    // Solicitation / CTA lines
+    .replace(/^.*(?:feel free to|interested[,\s]+(?:please|pls|dm|pm|message|line|call|whatsapp)|reach out|get in touch|don.t hesitate)[^\n]*/gim, '')
     // Emails
     .replace(/[\w.+-]+@[\w.-]+\.\w+/g, '')
     // Generic ID patterns
@@ -308,6 +314,13 @@ function sanitize(text) {
     .replace(/(?:dm|pm|message)\s+(?:me|us|owner)[^\n]*/gi, '')
     // Agent promo lines — whole line containing these phrases
     .replace(/^.*(?:please contact us|for customer|customer agent|contact our|our agent|our team)[^\n]*/gim, '')
+    // "We welcome" phrases — FB post tells that reveal source
+    .replace(/^.*we\s+welcome\s+(?:agents?|brokers?|foreigners?|expats?|co[\-\s]?broke)[^\n]*/gim, '')
+    .replace(/^.*(?:agents?|foreigners?|expats?)\s+(?:are\s+)?welcome[^\n]*/gim, '')
+    .replace(/^.*welcome\s+(?:agents?|co[\-\s]?broke|brokers?)[^\n]*/gim, '')
+    // FB engagement bait
+    .replace(/^.*(?:like\s+(?:and|&)\s+share|share\s+(?:and|&)\s+like|please\s+share|pls\s+share|share\s+this\s+post)[^\n]*/gim, '')
+    .replace(/^.*(?:comment\s+below|drop\s+a\s+comment|leave\s+a\s+comment)[^\n]*/gim, '')
     // Hashtags
     .replace(/#\S+/g, '')
     // Facebook metadata
@@ -501,7 +514,11 @@ app.post('/webhook', lineMiddleware, async (req, res) => {
         }
         const cleanDesc = await translateIfNeeded(sanitize(listing.description));
         const formattedPrice = formatPrice(listing.price, listing.priceNum);
-        const title = await translateIfNeeded(sanitize(listing.title)) || 'Property';
+        const rawTitle = (listing.title || '').toLowerCase().trim();
+        const GARBAGE = new Set(['home','notifications','marketplace','groups','watch','menu','log in','sign up','facebook','']);
+        const title = GARBAGE.has(rawTitle) || rawTitle.length < 5
+          ? 'Property'
+          : (await translateIfNeeded(sanitize(listing.title)));
         await lineClient.pushMessage({
           to: userId,
           messages: [{ type: 'text', text: `📋 ${title}\n${formattedPrice}\n\n${cleanDesc || 'No description available.'}` }]

@@ -136,11 +136,19 @@ function stripContactInfo(text) {
     .replace(/(?:\+?66|0)\s?\d[\d\s\-\.]{7,12}\d/g, '')
     .replace(/\b0[689]\d[\d\-\s\.]{7,10}\b/g, '')
     .replace(/\b\d{10}\b/g, '')
-    .replace(/(?:line\s*(?:id|oa)?|ไลน์|line\s*:)\s*[@\w.\-]+/gi, '')
+    // Strip whole lines containing LINE references
+    .replace(/^.*(?:line\s*(?:id|oa)?|ไลน์)[^\n]*/gim, '')
+    .replace(/^.*line\s*[:\-][^\n]*/gim, '')
     .replace(/(?:wechat|wc|微信)\s*[:\-]?\s*\S+/gi, '')
     .replace(/@[\w.\-]+/g, '')
     .replace(/[\w.+-]+@[\w.-]+\.\w+/g, '')
     .replace(/(?:tel|phone|call|whatsapp|wa|contact|mobile|ติดต่อ|โทร)[^\n]{0,80}/gi, '')
+    // Solicitation / "we welcome" / FB-tell phrases
+    .replace(/^.*(?:feel free to|reach out|get in touch)[^\n]*/gim, '')
+    .replace(/^.*we\s+welcome\s+(?:agents?|brokers?|foreigners?|expats?|co[\-\s]?broke)[^\n]*/gim, '')
+    .replace(/^.*(?:agents?|foreigners?|expats?)\s+(?:are\s+)?welcome[^\n]*/gim, '')
+    .replace(/^.*(?:like\s+(?:and|&)\s+share|please\s+share|pls\s+share)[^\n]*/gim, '')
+    .replace(/#\S+/g, '')
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -472,5 +480,4 @@ export function getManualListings() {
   return db.listings
     .filter(l => l.source === 'manual')
     .map(l => ({ ...l, ownerContact: a.ownerContacts?.[l.listingId]?.contact || null }));
-}
 }
