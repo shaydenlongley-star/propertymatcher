@@ -1,5 +1,6 @@
-// Scrapes owner-only listings from DDProperty and Hipflat (no login required)
-// Uses __NEXT_DATA__ JSON extraction (reliable for Next.js apps) + DOM fallback
+// Scrapes owner/landlord-only listings from PropertyScout, DDProperty, Hipflat
+// PropertyScout: full __NEXT_DATA__ JSON (reliable, no Cloudflare)
+// DDProperty/Hipflat: Cloudflare-blocked — kept as fallback attempts
 import { chromium } from 'playwright';
 
 const AGENT_KEYWORDS = [
@@ -108,6 +109,14 @@ async function scrapeDDProperty(browser) {
       } catch { return null; }
     });
 
+    // Debug: print top-level structure of __NEXT_DATA__ to diagnose path
+    if (nextData) {
+      const topKeys = Object.keys(nextData?.props?.pageProps || {});
+      console.log(`[EXTRA] DDProperty __NEXT_DATA__ pageProps keys: ${topKeys.join(', ') || '(none)'}`);
+    } else {
+      console.log('[EXTRA] DDProperty: no __NEXT_DATA__ found');
+    }
+
     const jsonListings = extractListingsFromNextData(nextData);
     if (jsonListings) {
       console.log(`[EXTRA] DDProperty: found ${jsonListings.length} listings via __NEXT_DATA__`);
@@ -121,20 +130,25 @@ async function scrapeDDProperty(browser) {
     if (listings.length === 0) {
       console.log('[EXTRA] DDProperty: falling back to DOM extraction');
       const items = await page.evaluate(() => {
+        // eslint-disable-next-line no-unused-vars
         const results = [];
-        // Try multiple possible card selectors
         const selectors = [
           '[data-automation-id="listing-card"]',
           '[class*="ListingCard"]',
           '[class*="listing-card"]',
           'article[class]',
           '[class*="PropertyCard"]',
+          '[class*="property-item"]',
+          '[class*="search-result"]',
         ];
         let cards = [];
+        let usedSel = '';
         for (const sel of selectors) {
           cards = Array.from(document.querySelectorAll(sel));
-          if (cards.length > 2) break;
+          if (cards.length > 2) { usedSel = sel; break; }
         }
+        // Debug info
+        results._debug = { cardCount: cards.length, usedSel, title: document.title?.slice(0,60) };
 
         for (const card of cards.slice(0, 50)) {
           const allText = card.innerText || '';
@@ -375,15 +389,102 @@ async function scrapeBaania(browser) {
   return listings;
 }
 
-export async function scrapeExtraSources() {
-  const browser = await chromium.launch({ headless: true });
+// PropertyScout: reliable landlord-only Bangkok condo listings via __NEXT_DATA__
+async function scrapePropertyScout(browser, pages = 15) {
+  const listings = [];
+  const page = await browser.newPage();
+  await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
+
+  const BEDROOM_MAP = {
+    studio: 0, one_bedroom: 1, two_bedrooms: 2, three_bedrooms: 3,
+    four_bedrooms: 4, five_bedrooms: 5, six_bedrooms: 6,
+  };
+
   try {
-    const [ddp, hf, ban] = await Promise.all([
+    for (let pageNum = 1; pageNum <= pages; pageNum++) {
+      const url = pageNum === 1
+        ? 'https://propertyscout.co.th/en/rentals/condo/'
+        : `https://propertyscout.co.th/en/rentals/condo/page-${pageNum}/`;
+
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await page.waitForTimeout(2000);
+
+        const items = await page.evaluate(() => {
+          try {
+            const d = JSON.parse(document.getElementById('__NEXT_DATA__').textContent);
+            return d?.props?.pageProps?.rentals?.data || [];
+          } catch { return []; }
+        });
+
+        if (items.length === 0) { console.log(`[EXTRA] PropertyScout: page ${pageNum} empty — stopping`); break; }
+
+        // Keep Bangkok landlord listings only
+        const bkkLandlord = items.filter(l =>
+          l.province_ps_en === 'Bangkok' && l.postBy === 'landlord'
+        );
+
+        for (const l of bkkLandlord) {
+          const priceNum = l.lowestPrice && l.lowestPrice >= 3000 && l.lowestPrice <= 500000
+            ? l.lowestPrice : 0;
+          if (!priceNum) continue; // skip if no valid price
+
+          const bedStr = l.numberBedrooms || '';
+          const bedrooms = BEDROOM_MAP[bedStr] ?? null;
+          const title = l.title?.standard || l.title?.short || '';
+          if (!title) continue;
+
+          const location = l.neighborhood_ps_en || l.district_ps_en || 'Bangkok';
+          const imgPath = l.featuredImageUrl || (l.cdnImages?.[0]?.url);
+          const photo = imgPath ? `https://static.propertyscout.co.th/${imgPath}` : null;
+
+          listings.push({
+            title,
+            price: `${priceNum} THB/month`,
+            priceNum,
+            location,
+            url: '',  // source must not be exposed per CLAUDE.md
+            photos: photo ? [photo] : [],
+            bedrooms,
+            description: `${title}. ${location}. ${priceNum} THB/month. ${bedStr.replace(/_/g, ' ')}.`,
+            ownerConfirmed: true, // postBy === 'landlord'
+            source: 'propertyscout',
+            listingId: `ps_${l.id}`,
+          });
+        }
+
+        console.log(`[EXTRA] PropertyScout page ${pageNum}: ${items.length} total, ${bkkLandlord.length} BKK landlord`);
+      } catch (e) {
+        console.log(`[EXTRA] PropertyScout page ${pageNum} error:`, e.message.slice(0, 60));
+      }
+    }
+
+    console.log(`[EXTRA] PropertyScout: ${listings.length} Bangkok landlord listings total`);
+  } finally {
+    await page.close();
+  }
+  return listings;
+}
+
+export async function scrapeExtraSources() {
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+  } catch (e) {
+    console.log('[EXTRA] Playwright not available (no browser binary) — skipping external scrape:', e.message);
+    return [];
+  }
+  try {
+    // PropertyScout is the primary reliable source (no Cloudflare, landlord filter)
+    const ps = await scrapePropertyScout(browser, 15);
+
+    // DDProperty and Hipflat are behind Cloudflare — attempt anyway, expect 0
+    const [ddp, hf] = await Promise.all([
       scrapeDDProperty(browser),
       scrapeHipflat(browser),
-      scrapeBaania(browser),
     ]);
-    const all = [...ddp, ...hf, ...ban];
+
+    const all = [...ps, ...ddp, ...hf];
     console.log(`[EXTRA] Total: ${all.length} listings from external sources`);
     return all;
   } finally {
