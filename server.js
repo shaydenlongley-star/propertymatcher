@@ -722,8 +722,9 @@ app.post('/admin/viewing-status', express.json(), (req, res) => {
   res.json({ ok: true });
 });
 
-app.listen(3000, () => {
-  console.log('Server running → http://localhost:3000');
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running → http://localhost:${PORT}`);
   const stats = getDBStats();
   console.log(`DB: ${stats.total} listings cached (last updated: ${stats.lastUpdated || 'never'})`);
 
@@ -754,9 +755,9 @@ app.listen(3000, () => {
     }
   };
 
-  const scrapeWithNotify = () => runBackgroundScrape(onSessionExpired, null);
-  scrapeWithNotify();
-  setInterval(scrapeWithNotify, 30 * 60 * 1000); // every 30 min — keeps FB session alive longer
+  const scrapeWithNotify = () => runBackgroundScrape(onSessionExpired, null).catch(e => console.error('[BG] Scrape crashed:', e.message));
+  setTimeout(scrapeWithNotify, 5000); // small delay so server is fully ready first
+  setInterval(scrapeWithNotify, 30 * 60 * 1000);
 
   // Purge listings older than 30 days every 6 hours
   setInterval(() => removeStaleListings(30), 6 * 60 * 60 * 1000);
