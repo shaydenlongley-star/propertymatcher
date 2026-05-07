@@ -5,17 +5,29 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SESSION_FILE = path.join(__dirname, 'fb-session.json');
+const GROUP_IDS_FILE = path.join(__dirname, 'group-ids.json');
 
-const OWNER_GROUPS = [
-  '299716057099018',    // CONDO & PROPERTY POST BY OWNER (22K)
-  'condosalesbyowner',  // Condo sales by owner (116K)
-  '458098031664389',    // Condo rental by Owner (77K)
-  '899928066709755',    // ซื้อ ขาย บ้าน ที่ดิน เจ้าของขายเอง (169K)
-  '1387566661527073',   // Bangkok Condo For Rent/Sale by Owner
+const FALLBACK_GROUPS = [
+  '299716057099018',
+  'condosalesbyowner',
+  '458098031664389',
+  '899928066709755',
+  '1387566661527073',
   'bangkokpropertybyowner',
-  '2204279116481020',   // Bangkok Property Owner Post
-  '1544324185802619',   // Condo Bangkok By Owner
+  '2204279116481020',
+  '1544324185802619',
 ];
+
+function loadGroupIds() {
+  if (fs.existsSync(GROUP_IDS_FILE)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(GROUP_IDS_FILE, 'utf8'));
+      const ids = Object.keys(data);
+      if (ids.length > 0) return ids;
+    } catch {}
+  }
+  return FALLBACK_GROUPS;
+}
 
 // Words that confirm an agent/agency post
 const AGENT_KEYWORDS = [
@@ -60,6 +72,121 @@ function hasOwnerSignal(text) {
   return OWNER_SIGNALS.some(k => lower.includes(k));
 }
 
+// Shared extraction logic — works for both group posts and marketplace items
+async function scrapeDetailFromPage(page) {
+  return page.evaluate(() => {
+    const allDivs = Array.from(document.querySelectorAll('[dir="auto"]'));
+    const description = allDivs.map(d => d.innerText?.trim()).filter(t => t && t.length > 20).sort((a, b) => b.length - a.length)[0] || '';
+
+    const rentMatch = description.match(/([\d,]+)\s*(?:baht|บาท|THB|thb)\s*(?:\/|\s*per\s*)?\s*(?:month|เดือน)/i)
+                   || description.match(/(?:rent|เช่า)[^\n]{0,40}?([\d,]+)/i);
+    const price = rentMatch ? rentMatch[1].replace(/,/g, '') + ' THB/month' : '';
+    const priceNum = price ? parseInt(price.replace(/[^0-9]/g, '')) : 0;
+
+    const bedMatch = description.match(/(\d+)\s*(?:bed(?:room)?s?|ห้องนอน)/i);
+    const bedrooms = bedMatch ? parseInt(bedMatch[1]) : null;
+
+    const titleEl = document.querySelector('h1');
+    const title = titleEl?.innerText?.trim().slice(0, 80) || description.split('\n')[0]?.trim().slice(0, 80) || '';
+
+    const imgs = Array.from(document.querySelectorAll('img'))
+      .map(img => img.src)
+      .filter(src => src.includes('scontent') && !src.includes('emoji') && !src.includes('profile_pic'))
+      .slice(0, 6);
+
+    const locationKeywords = ['Sukhumvit','Thonglor','Asok','Silom','Sathorn','Phrom Phong','Ekkamai',
+      'On Nut','Bearing','Nana','Ari','Ratchada','Phra Khanong','Rama 9','Ladprao','Chatuchak','Bang Na'];
+    const allText = Array.from(document.querySelectorAll('span,div,p')).map(el => el.innerText?.trim()).filter(Boolean);
+    const location = allText.find(t => locationKeywords.some(k => t?.includes(k)) && t.length < 80) || '';
+
+    const ownerSignals = ['owner post','เจ้าของโพส','direct owner','ไม่ผ่านนายหน้า','no agent','by owner'];
+    const ownerConfirmed = ownerSignals.some(s => description.toLowerCase().includes(s));
+
+    return { title, price, priceNum, description, photos: imgs, location, bedrooms, ownerConfirmed };
+  });
+}
+
+// Full Facebook search fallback — Marketplace + post search
+export async function scrapeFBSearch(query, maxPrice = null) {
+  const browser = await chromium.launch({ headless: false, args: ['--window-position=9999,9999'] });
+  const contextOptions = fs.existsSync(SESSION_FILE) ? { storageState: SESSION_FILE } : {};
+  const context = await browser.newContext(contextOptions);
+  const page = await context.newPage();
+
+  await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2000);
+  if (await page.$('input[name="email"]')) { await browser.close(); return []; }
+
+  const allUrls = [];
+
+  // 1. Facebook Marketplace — Bangkok rentals
+  try {
+    const mktQ = encodeURIComponent(query + ' rent Bangkok');
+    await page.goto(`https://www.facebook.com/marketplace/search/?query=${mktQ}`, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(5000);
+    await page.evaluate(() => window.scrollBy(0, 2000));
+    await page.waitForTimeout(1500);
+    const mktUrls = await page.evaluate(() => {
+      const seen = new Set(), results = [];
+      for (const a of document.querySelectorAll('a[href]')) {
+        if (!a.href.includes('/marketplace/item/')) continue;
+        const clean = a.href.split('?')[0];
+        if (!seen.has(clean)) { seen.add(clean); results.push(clean); }
+        if (results.length >= 8) break;
+      }
+      return results;
+    });
+    console.log(`[FBSEARCH] Marketplace: ${mktUrls.length} results`);
+    allUrls.push(...mktUrls);
+  } catch (e) { console.log('[FBSEARCH] Marketplace error:', e.message); }
+
+  // 2. FB post search — broader net across all public posts
+  try {
+    const postQ = encodeURIComponent(query + ' Bangkok condo rent owner');
+    await page.goto(`https://www.facebook.com/search/posts/?q=${postQ}`, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(4000);
+    await page.evaluate(() => window.scrollBy(0, 2000));
+    await page.waitForTimeout(1500);
+    const postUrls = await page.evaluate(() => {
+      const seen = new Set(), results = [];
+      for (const a of document.querySelectorAll('a[href]')) {
+        const href = a.href;
+        if (!href.includes('/posts/') && !href.includes('/permalink/') && !href.includes('/commerce/listing/')) continue;
+        const clean = href.split('?')[0];
+        if (!seen.has(clean)) { seen.add(clean); results.push(href); }
+        if (results.length >= 8) break;
+      }
+      return results;
+    });
+    console.log(`[FBSEARCH] Post search: ${postUrls.length} results`);
+    allUrls.push(...postUrls);
+  } catch (e) { console.log('[FBSEARCH] Post search error:', e.message); }
+
+  const AGENT_KW = ['agent','broker','agency','commission','นายหน้า','ตัวแทน','customer agent',
+    'please contact us','our team','our agency','real estate consultant','consultant for','for customer'];
+
+  const listings = [];
+  for (const url of [...new Set(allUrls)].slice(0, 8)) {
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(3000);
+      const detail = await scrapeDetailFromPage(page);
+
+      const text = (detail.title + ' ' + detail.description).toLowerCase();
+      if (AGENT_KW.some(k => text.includes(k))) { console.log('[FBSEARCH] Skipping agent post'); continue; }
+      if (!detail.title && !detail.description) continue;
+      if (maxPrice && detail.priceNum && detail.priceNum < 500000 && detail.priceNum > maxPrice) continue;
+
+      console.log(`[FBSEARCH] Found: ${detail.title?.slice(0, 50)}`);
+      listings.push({ ...detail, url });
+    } catch (e) { console.log('[FBSEARCH] Error visiting:', e.message); }
+  }
+
+  await context.storageState({ path: SESSION_FILE });
+  await browser.close();
+  return listings;
+}
+
 export async function scrapeListings(query, maxPrice = null) {
   const browser = await chromium.launch({ headless: false });
 
@@ -81,6 +208,7 @@ export async function scrapeListings(query, maxPrice = null) {
   }
 
   const allPostUrls = [];
+  const OWNER_GROUPS = loadGroupIds();
 
   for (const group of OWNER_GROUPS) {
     if (allPostUrls.length >= 6) break;
@@ -200,7 +328,7 @@ export async function scrapeListings(query, maxPrice = null) {
         const imgs = Array.from(document.querySelectorAll('img'))
           .map(img => img.src)
           .filter(src => src.includes('scontent') && !src.includes('emoji') && !src.includes('profile_pic'))
-          .slice(0, 4);
+          .slice(0, 6);
 
         const locationKeywords = ['Bangkok', 'Sukhumvit', 'Thonglor', 'Asok', 'Silom', 'Sathorn', 'Phrom Phong', 'Ekkamai', 'On Nut', 'Bearing', 'Nana', 'Ari', 'Ratchada'];
         const textNodes = Array.from(document.querySelectorAll('span, div, p'))
